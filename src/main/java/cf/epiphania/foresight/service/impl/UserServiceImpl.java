@@ -7,14 +7,18 @@ import cf.epiphania.foresight.req.UserSaveReq;
 import cf.epiphania.foresight.resp.CommonResp;
 import cf.epiphania.foresight.service.UserService;
 import cf.epiphania.foresight.util.CopyUtil;
+import cf.epiphania.foresight.util.EmailOTP;
 import cf.epiphania.foresight.util.aspect.WebInfo;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.google.common.hash.Hashing;
 import jakarta.annotation.Resource;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.ObjectUtils;
 
+import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.util.List;
 
@@ -23,6 +27,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, UserEntity> impleme
 
     @Resource
     private UserMapper userMapper;
+
+    @Value("${email.from}")
+    private String email;
+
+    @Value("${email.password}")
+    private String password;
 
     @Override
     @WebInfo
@@ -46,11 +56,18 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, UserEntity> impleme
         UserEntity user = CopyUtil.copy(req, UserEntity.class);
         UserEntity userEntity = selectByEmail(req.getEmail());
         if (ObjectUtils.isEmpty(userEntity)) {
+            //send an otp to the given email
+            try {
+                String otp = EmailOTP.sendOTP(email, user.getEmail(), user.getUsername(), password);
+                resp.setMessage(Hashing.sha256().hashString(otp, StandardCharsets.UTF_8).toString());
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
             user.setJoinedSince(new Timestamp(System.currentTimeMillis()));
             userMapper.insert(user);
             UserEntity insertedUser = selectByEmail(req.getEmail());
             resp.setContent(insertedUser);  // return new created user entity
-
+            userMapper.createEventTable(insertedUser.getUid());
         } else {  // related account exists with the email
             resp.setMessage("An account exists with this email");
             resp.setSuccess(false);
